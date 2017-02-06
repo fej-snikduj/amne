@@ -17,10 +17,8 @@ if (!process.argv[2] && !fs.existsSync('./input.txt')) {
     --> node index.js <inputFile> <outputFile>
     or an input.txt file must exist in the current directory`);
   process.exit();
-}
-
-// Verify output file
-if (!process.argv[3] && fs.existsSync('./output.txt')) {
+} else if (!process.argv[3] && fs.existsSync('./output.txt')) {
+  // Verify output file
   console.warn(
     `You did not specify an output file.  The output file will overwrite the
     current output.txt file in the current directory.  Do you wish to continue?`
@@ -39,6 +37,9 @@ if (!process.argv[3] && fs.existsSync('./output.txt')) {
       console.log('print yes (y) or no (n)');
     }
   });
+} else {
+  rl.close();
+  startProgram();
 }
 
 
@@ -49,7 +50,7 @@ START OF PROGRAM FUNCTIONALITY
 
 function startProgram() {
   // Variables to be read from the input.txt
-  let dataSize, windoSize;
+  let dataSize, windowSize;
   // Number of times 'data' event is emitted from readable stream pipe
   let chunkCount= 0;
   // WindowRange holds the current values to be analyzed
@@ -59,8 +60,8 @@ function startProgram() {
   // Readable stream allows data to be read in chunks, processed, then written,
   // which frees up the RAM usage by not loading entire chunk of data at once
   readStream.pipe(split(' ')).on('data', value => {
-    // Return immediately if value is empty space
-    if (value === ' ') return;
+    // Return if value is empty
+    if (value === ' ' || value === '') return;
 
     switch(chunkCount) {
       case 0:
@@ -90,10 +91,18 @@ function startProgram() {
     }
     // Increase count
     chunkCount++;
+
   });
 
   readStream.on('end', () => {
-
+    if (chunkCount - 2 !== dataSize) {
+      console.warn(`The give data size parameter ''${dataSize}'' did not match the
+        number of data points processed '${chunkCount - 2}'.  Please check
+        the input data.  The processed data can be found in ${outputFile}`);
+    } else {
+      console.log(`Success!  The processed data can be found in ${outputFile}`);
+    }
+    fs.closeSync(writeFD);
   });
 
   function findWindowSize(value) {
@@ -122,11 +131,11 @@ function startProgram() {
     };
 
     for (let i = 0, length = windowRange.length; i < length; i++) {
-      if (windowRange[i + 1] > windowRange[i]) {
+      if (windowRange[i + 1] > windowRange[i]) { // Handle increase
         updateTracker(countTracker, 1);
-      } else if (windowRange[i + 1] < windowRange[i]) {
+      } else if (windowRange[i + 1] < windowRange[i]) { // Handle decrease
         updateTracker(countTracker, -1);
-      } else {
+      } else { // Handle no change
         updateTracker(countTracker, 0);
       }
     }
@@ -136,11 +145,14 @@ function startProgram() {
   function updateTracker(tracker, type) {
     if (tracker.type === type) {
       tracker.consecutiveCount++;
+      // The cumulative count can be caculated by using the consecutive count
       tracker.count += tracker.type * tracker.consecutiveCount;
     } else {
+      // Reset the consecutive count to 1
       tracker.consecutiveCount = 1;
       tracker.type = type;
-      tracker.count += tracker.type * tracker.consecutiveCount;
+      //  Add or subtract to count as appropriate.
+      tracker.count += tracker.type;
     }
   }
 };
