@@ -51,11 +51,12 @@ START OF PROGRAM FUNCTIONALITY
 function startProgram() {
   // Variables to be read from the input.txt
   let dataSize, windowSize;
+
   // Number of times 'data' event is emitted from readable stream pipe
   let chunkCount= 0;
   // WindowRange holds the current values to be analyzed
   // and has length of windowSize when full.
-  let windowRangeArray = [];
+  let valuesInWindow = [];
 
   // Readable stream allows data to be read in chunks, processed, then written,
   // which frees up the RAM usage by not loading entire chunk of data at once
@@ -76,15 +77,15 @@ function startProgram() {
         if (firstDataValue) {
           // First data value was fed through pipe with windowCount
           chunkCount++;
-          windowRangeArray.push(firstDataValue);
+          valuesInWindow.push(firstDataValue);
         }
         break;
       default:
         addValueToArray(Number(value));
-        if (windowRangeArray.length === windowSize) { // Array is full
+        if (valuesInWindow.length === windowSize) { // Array is full
           // Calculate value for current range and write to output
-          let windowCount = findCountForWindow(windowRangeArray);
-          fs.write(writeFD, windowCount + '\n', err => {
+          let windowCount = findCountForWindow();
+          fs.write(writeFD, windowCount + ' ' + chunkCount + ' \n', err => {
             if (err) throw err;
           });
         }
@@ -92,17 +93,6 @@ function startProgram() {
     // Increase count
     chunkCount++;
 
-  });
-
-  readStream.on('end', () => {
-    if (chunkCount - 2 !== dataSize) {
-      console.warn(`The give data size parameter ''${dataSize}'' did not match the
-        number of data points processed '${chunkCount - 2}'.  Please check
-        the input data.  The processed data can be found in ${outputFile}`);
-    } else {
-      console.log(`Success!  The processed data can be found in ${outputFile}`);
-    }
-    fs.closeSync(writeFD);
   });
 
   function findWindowSize(value) {
@@ -115,44 +105,107 @@ function startProgram() {
   }
 
   function addValueToArray(value) {
-    if (windowRangeArray.length === windowSize) { //Shift Values
-      windowRangeArray.shift();
-      windowRangeArray.push(value);
+    if (valuesInWindow.length === windowSize) { //Shift Values
+      valuesInWindow.shift();
+      valuesInWindow.push(value);
     } else { //Array not yet full
-      windowRangeArray.push(value);
+      valuesInWindow.push(value);
     }
   }
 
-  function findCountForWindow(windowRange) {
-    let countTracker = {
-      count: 0,
-      type: 0, //1 for increase, -1 for decrease, 0 for same value
-      consecutiveCount: 0
-    };
-
-    for (let i = 0, length = windowRange.length; i < length; i++) {
-      if (windowRange[i + 1] > windowRange[i]) { // Handle increase
-        updateTracker(countTracker, 1);
-      } else if (windowRange[i + 1] < windowRange[i]) { // Handle decrease
-        updateTracker(countTracker, -1);
-      } else { // Handle no change
-        updateTracker(countTracker, 0);
-      }
+  readStream.on('end', () => {
+    if (chunkCount - 2 !== dataSize) {
+      console.warn(`The give data size parameter ''${dataSize}'' did not match the
+        number of data points processed '${chunkCount - 2}'.  Please check
+        the input data.  The processed data can be found in ${outputFile}`);
+    } else {
+      console.log(`Success!  The processed data can be found in ${outputFile}`);
     }
-    return countTracker.count;
+    fs.closeSync(writeFD);
+  });
+
+
+  /*
+  CALCULATION ALGORITHMS START BELOW
+  Theoretically, the list of data points only needs to be scanned over one time.
+  Everytime the window moves to the right, the point contributing subsets that
+  the furthest left most value is a member of must be subtracted, and the entering
+  value on the right needs to be added to any subsets that is will contribute to.
+  */
+  let countTracker = {
+    initialRun: true,
+    runningCount: 0,
+    currentRunType: 0, //1 for increase, -1 for decrease, 0 for same value
+    consecutiveRunCount: null,
+    pointsContributedByEachValue: [], // With size K - windowsize
+  };
+
+  function findCountForWindow() {
+    if (countTracker.initialRun) {
+      return calculateFirstSubsetCount();
+    } else {
+      return calculateSubsequentSubsetCount();
+    }
   }
 
-  function updateTracker(tracker, type) {
-    if (tracker.type === type) {
-      tracker.consecutiveCount++;
+  function calculateFirstSubsetCount() {
+    countTracker.initialRun = false;
+    for (let i = 0, length = valuesInWindow.length; i < length - 1; i++) {
+      let type = determineType(valuesInWindow[i + 1], valuesInWindow[i]);
+      updateTracker(countTracker, type, i);
+    }
+    return countTracker.runningCount;
+  }
+
+  function determineType(val1, val2) {
+    if (val1 > val2) { // Handle increase
+      return 1;
+    } else if (val1 < val2) { // Handle decrease
+      return -1;
+    } else {// Equal
+      return 0;
+    }
+  }
+
+  function calculateSubsequentSubsetCount() {
+    // Remove leftmost value
+    let valueToSubtract = countTracker.pointsContributedByEachValue.shift();
+    // Subtract leftmost contribution points from runningCount
+    countTracker.runningCount -= valueToSubtract;
+    // Determine the type of new value in array
+    let type = determineType(
+      valuesInWindow[windowSize - 1],
+      valuesInWindow[windowSize - 2]
+    );
+    // Update tracker with new value
+    updateTracker(countTracker, type, windowSize - 2);
+    return countTracker.runningCount;
+  }
+
+  function updateTracker(tracker, type, windowIndex) {
+    if (tracker.currentRunType === type) {
+      // ConsecutiveRunCount can never equal windowSize
+      tracker.consecutiveRunCount = tracker.consecutiveRunCount + 1 ===
+          windowSize ? tracker.consecutiveRunCount :
+          tracker.consecutiveRunCount + 1;
       // The cumulative count can be caculated by using the consecutive count
-      tracker.count += tracker.type * tracker.consecutiveCount;
+      tracker.runningCount += type * tracker.consecutiveRunCount;
+      tracker.pointsContributedByEachValue[windowIndex] = 0; // Initialize
+      updateContributionArray(windowIndex, tracker.consecutiveRunCount);
     } else {
       // Reset the consecutive count to 1
-      tracker.consecutiveCount = 1;
-      tracker.type = type;
+      tracker.consecutiveRunCount = 1;
+      tracker.currentRunType = type;
+      tracker.pointsContributedByEachValue[windowIndex] = type;
       //  Add or subtract to count as appropriate.
-      tracker.count += tracker.type;
+      tracker.runningCount += type;
+    }
+  }
+
+  function updateContributionArray(index, consecutiveCount) {
+    let leftmostIndexToUpdate = index - consecutiveCount;
+    for (let i = index; i > leftmostIndexToUpdate; i--) {
+      countTracker.pointsContributedByEachValue[i]++;
     }
   }
 };
