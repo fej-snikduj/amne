@@ -4,6 +4,7 @@ const outputFile = process.argv[3] || './output.txt';
 const readStream = fs.createReadStream(inputFile, {encoding: 'utf-8'});
 const writeStream= fs.createWriteStream(outputFile);
 const readline = require('readline');
+const split = require('split');
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout
@@ -40,51 +41,64 @@ if (!process.argv[3] && fs.existsSync('./output.txt')) {
   });
 }
 
+
+
+/*
+START OF PROGRAM FUNCTIONALITY
+*/
+
 function startProgram() {
-  readStream.on('data', data => {
+  let dataSize;
+  let windowSize = 1;
+  let chunk = 0;
+  // WindowRange holds the current values to be analyzed
+  // and has length of windowSize.
+  let windowRange = [];
+  let index = 0;
 
-    // Transform data into array
-    let array = data.split(/\r?\n/);
-    let [dataSize, windowSize] = array[0].split(' ').map(Number);
-    let inputData = array[1].split(' ').map(Number);
+  readStream.pipe(split(' ')).on('data', value => {
+    // Keep track of data value index (mines the 2 input parameters)
+    index = (chunk - 2);
+      if (chunk === 0) {
+        dataSize = value;
+      } else if (chunk === 1) {
+        // Account for fact that first line of input may not end in a space
+        if (value.search(/\n/g) > -1) {
+          let valueArray = value.split('\n');
+          windowSize = Number(valueArray[0]);
+          windowRange[0] = Number(valueArray[1]);
+          chunk++;
+        } else {
+          windowSize = Number(value);
+        }
+      } else if (chunk <= windowSize){
+        console.log('yayay');
+        windowRange[index] = Number(value);
+      }
 
-    // Check to make sure stated input length N is same as array length
-    if (inputData.length !== dataSize) {
-      console.error(`The input of '${dataSize}'' does not match actual data size
-      of '${inputData.length}'.  Please check data and try again.`);
+    if (chunk > windowSize) {
+      console.log(windowRange, 'windowRange');
+      let windowCount = findCountForWindow(windowRange);
+      // Print the count to the output file
+      writeStream.write(windowCount + ' ' + chunk + '\n');
+    }
+    if (chunk > 20) {
       process.exit();
     }
-
-    // Release reference to array, which is not needed
-    array = null;
-
-    // Iterate over input data, performing calculation on each window range
-    inputData.forEach((price, index, array) => {
-      // Return if at end of array
-      if (index + windowSize > array.length) {
-        return;
-      }
-      // Find the count for the current window
-      let windowCount = findCountForWindow(index, index + windowSize - 1, array);
-      // Print the count to the output file
-      writeStream.write(windowCount + '\n');
-    });
-    writeStream.end();
-
+    chunk++;
   });
 
-
-  function findCountForWindow(windowLeftIndex, windowRightIndex, inputData) {
+  function findCountForWindow(windowRange) {
     let countTracker = {
       count: 0,
       type: 0, //1 for increase, -1 for decrease, 0 for same value
       consecutiveCount: 0
     };
 
-    for (let i = windowLeftIndex; i < windowRightIndex; i++) {
-      if (inputData[i + 1] > inputData[i]) {
+    for (let i = 0, length = windowRange.length; i < length; i++) {
+      if (windowRange[i + 1] > windowRange[i]) {
         updateTracker(countTracker, 1);
-      } else if (inputData[i + 1] < inputData[i]) {
+      } else if (windowRange[i + 1] < windowRange[i]) {
         updateTracker(countTracker, -1);
       } else {
         updateTracker(countTracker, 0);
@@ -104,4 +118,5 @@ function startProgram() {
     return countTracker.count;
   }
 
-}
+
+};
