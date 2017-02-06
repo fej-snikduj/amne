@@ -2,7 +2,7 @@ const fs = require('fs');
 const inputFile = process.argv[2] || './input.txt';
 const outputFile = process.argv[3] || './output.txt';
 const readStream = fs.createReadStream(inputFile, {encoding: 'utf-8'});
-const writeStream= fs.createWriteStream(outputFile);
+const writeFD = fs.openSync(outputFile, 'w');
 const readline = require('readline');
 const split = require('split');
 const rl = readline.createInterface({
@@ -48,47 +48,52 @@ START OF PROGRAM FUNCTIONALITY
 */
 
 function startProgram() {
-  let dataSize;
-  let windowSize = 1;
+  // Variables to be read from the input.txt
+  let dataSize, windoSize;
+  // Number of times 'data' event is emitted from readable stream pipe
   let chunkCount= 0;
   // WindowRange holds the current values to be analyzed
-  // and has length of windowSize.
+  // and has length of windowSize when full.
   let windowRangeArray = [];
-  let index = 0;
 
+  // Readable stream allows data to be read in chunks, processed, then written,
+  // which frees up the RAM usage by not loading entire chunk of data at once
   readStream.pipe(split(' ')).on('data', value => {
     // Return immediately if value is empty space
     if (value === ' ') return;
 
     switch(chunkCount) {
       case 0:
+        // First value is the data size
         dataSize = Number(value);
         break;
       case 1:
+        // Second value is the windowSize
         // Account for fact that first line of input may not end with space
         windowSize = findWindowSize(value).windowSize;
-        firstDataValue = findWindowSize(value).windowSize;
+        firstDataValue = findWindowSize(value).firstDataValue;
         if (firstDataValue) {
+          // First data value was fed through pipe with windowCount
           chunkCount++;
-          windowRangeArray.push(Number(value));
+          windowRangeArray.push(firstDataValue);
         }
         break;
       default:
+        addValueToArray(Number(value));
         if (windowRangeArray.length === windowSize) { // Array is full
           // Calculate value for current range and write to output
-          writeStream.write(findCountForWindow(windowRangeArray), ' ', chunkCount)
-          shiftArrayRange(Number(value));
-        } else { //Array is not yet full
-          windowRangeArray.push(Number(value));
+          let windowCount = findCountForWindow(windowRangeArray);
+          fs.write(writeFD, windowCount + '\n', err => {
+            if (err) throw err;
+          });
         }
-
     }
-
+    // Increase count
     chunkCount++;
+  });
 
-    if (chunkCount > 20) {
-      process.exit();
-    }
+  readStream.on('end', () => {
+
   });
 
   function findWindowSize(value) {
@@ -100,9 +105,13 @@ function startProgram() {
     }
   }
 
-  function shiftArrayRange(value) {
-    windowRangeArray.shift();
-    windowRangeArray.push(value);
+  function addValueToArray(value) {
+    if (windowRangeArray.length === windowSize) { //Shift Values
+      windowRangeArray.shift();
+      windowRangeArray.push(value);
+    } else { //Array not yet full
+      windowRangeArray.push(value);
+    }
   }
 
   function findCountForWindow(windowRange) {
@@ -121,19 +130,17 @@ function startProgram() {
         updateTracker(countTracker, 0);
       }
     }
-
-    function updateTracker(tracker, type) {
-      if (tracker.type === type) {
-        tracker.consecutiveCount++;
-        tracker.count += tracker.type * tracker.consecutiveCount;
-      } else {
-        tracker.consecutiveCount = 1;
-        tracker.type = type;
-        tracker.count += tracker.type * tracker.consecutiveCount;
-      }
-    }
     return countTracker.count;
   }
 
-
+  function updateTracker(tracker, type) {
+    if (tracker.type === type) {
+      tracker.consecutiveCount++;
+      tracker.count += tracker.type * tracker.consecutiveCount;
+    } else {
+      tracker.consecutiveCount = 1;
+      tracker.type = type;
+      tracker.count += tracker.type * tracker.consecutiveCount;
+    }
+  }
 };
