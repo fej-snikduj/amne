@@ -50,43 +50,60 @@ START OF PROGRAM FUNCTIONALITY
 function startProgram() {
   let dataSize;
   let windowSize = 1;
-  let chunk = 0;
+  let chunkCount= 0;
   // WindowRange holds the current values to be analyzed
   // and has length of windowSize.
-  let windowRange = [];
+  let windowRangeArray = [];
   let index = 0;
 
   readStream.pipe(split(' ')).on('data', value => {
-    // Keep track of data value index (mines the 2 input parameters)
-    index = (chunk - 2);
-      if (chunk === 0) {
-        dataSize = value;
-      } else if (chunk === 1) {
-        // Account for fact that first line of input may not end in a space
-        if (value.search(/\n/g) > -1) {
-          let valueArray = value.split('\n');
-          windowSize = Number(valueArray[0]);
-          windowRange[0] = Number(valueArray[1]);
-          chunk++;
-        } else {
-          windowSize = Number(value);
-        }
-      } else if (chunk <= windowSize){
-        console.log('yayay');
-        windowRange[index] = Number(value);
-      }
+    // Return immediately if value is empty space
+    if (value === ' ') return;
 
-    if (chunk > windowSize) {
-      console.log(windowRange, 'windowRange');
-      let windowCount = findCountForWindow(windowRange);
-      // Print the count to the output file
-      writeStream.write(windowCount + ' ' + chunk + '\n');
+    switch(chunkCount) {
+      case 0:
+        dataSize = Number(value);
+        break;
+      case 1:
+        // Account for fact that first line of input may not end with space
+        windowSize = findWindowSize(value).windowSize;
+        firstDataValue = findWindowSize(value).windowSize;
+        if (firstDataValue) {
+          chunkCount++;
+          windowRangeArray.push(Number(value));
+        }
+        break;
+      default:
+        if (windowRangeArray.length === windowSize) { // Array is full
+          // Calculate value for current range and write to output
+          writeStream.write(findCountForWindow(windowRangeArray), ' ', chunkCount)
+          shiftArrayRange(Number(value));
+        } else { //Array is not yet full
+          windowRangeArray.push(Number(value));
+        }
+
     }
-    if (chunk > 20) {
+
+    chunkCount++;
+
+    if (chunkCount > 20) {
       process.exit();
     }
-    chunk++;
   });
+
+  function findWindowSize(value) {
+    if (value.search(/\n/g) > -1) { //contains 2 data points
+      let pointsArray = value.split('\n').map(Number);
+      return {windowSize: pointsArray[0], firstDataValue: pointsArray[1]};
+    } else {
+      return {windowSize: Number(value), firstDataValue: null};
+    }
+  }
+
+  function shiftArrayRange(value) {
+    windowRangeArray.shift();
+    windowRangeArray.push(value);
+  }
 
   function findCountForWindow(windowRange) {
     let countTracker = {
