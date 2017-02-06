@@ -83,7 +83,7 @@ function startProgram() {
         if (dataPoints.length >= windowSize) { // Array is full
           // Calculate value for current range and write to output
           let windowCount = findCountForWindow(chunkCount - 2);
-          fs.write(writeFD, windowCount + ' ' + chunkCount + ' \n', err => {
+          fs.write(writeFD, windowCount + '\n', err => {
             if (err) throw err;
           });
         }
