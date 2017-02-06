@@ -54,6 +54,7 @@ function startProgram() {
 
   // Number of times 'data' event is emitted from readable stream pipe
   let chunkCount= 0;
+  let writeCount = 0;
 
   // An array to hold the values as they are processed
   let dataPoints = [];
@@ -86,6 +87,7 @@ function startProgram() {
           fs.write(writeFD, windowCount + '\n', err => {
             if (err) throw err;
           });
+          writeCount++;
         }
     }
     // Increase count
@@ -108,9 +110,9 @@ function startProgram() {
         number of data points processed '${chunkCount - 2}'.  Please check
         the input data.  The processed data can be found in ${outputFile}`);
     } else {
-      console.log(`Success!  The processed data can be found in ${outputFile}`);
+      console.log(`Success!  The processed data can be found in ${outputFile}
+        A total of ${writeCount} points were written.`);
     }
-    fs.closeSync(writeFD);
   });
 
 
@@ -124,7 +126,7 @@ function startProgram() {
   let countTracker = {
     initialRun: true,
     runningCount: 0,
-    currentRunType: 0, //1 for increase, -1 for decrease, 0 for same value
+    currentRunType: null, //1 for increase, -1 for decrease, 0 for same value
     consecutiveRunCount: null,
     pointsContributedByEachValue: [],
   };
@@ -181,7 +183,7 @@ function startProgram() {
       // The cumulative count can be caculated by using the consecutive count
       tracker.runningCount += type * tracker.consecutiveRunCount;
       tracker.pointsContributedByEachValue[windowIndex] = 0; // Initialize
-      updateContributionArray(windowIndex, tracker.consecutiveRunCount);
+      updateContributionArray(windowIndex, tracker.consecutiveRunCount, type);
     } else {
       // Reset the consecutive count to 1
       tracker.consecutiveRunCount = 1;
@@ -192,10 +194,15 @@ function startProgram() {
     }
   }
 
-  function updateContributionArray(index, consecutiveCount) {
+  function updateContributionArray(index, consecutiveCount, type) {
     let leftmostIndexToUpdate = index - consecutiveCount;
     for (let i = index; i > leftmostIndexToUpdate; i--) {
-      countTracker.pointsContributedByEachValue[i]++;
+      if (type === 1) {
+        countTracker.pointsContributedByEachValue[i]++;
+    } else if (type === -1) {
+        countTracker.pointsContributedByEachValue[i]--;
     }
   }
 };
+
+}
