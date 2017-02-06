@@ -54,12 +54,10 @@ function startProgram() {
 
   // Number of times 'data' event is emitted from readable stream pipe
   let chunkCount= 0;
-  // WindowRange holds the current values to be analyzed
-  // and has length of windowSize when full.
-  let valuesInWindow = [];
 
-  // Readable stream allows data to be read in chunks, processed, then written,
-  // which frees up the RAM usage by not loading entire chunk of data at once
+  // An array to hold the values as they are processed
+  let dataPoints = [];
+
   readStream.pipe(split(' ')).on('data', value => {
     // Return if value is empty
     if (value === ' ' || value === '') return;
@@ -77,14 +75,14 @@ function startProgram() {
         if (firstDataValue) {
           // First data value was fed through pipe with windowCount
           chunkCount++;
-          valuesInWindow.push(firstDataValue);
+          dataPoints.push(firstDataValue);
         }
         break;
       default:
-        addValueToArray(Number(value));
-        if (valuesInWindow.length === windowSize) { // Array is full
+        dataPoints.push(Number(value));
+        if (dataPoints.length >= windowSize) { // Array is full
           // Calculate value for current range and write to output
-          let windowCount = findCountForWindow();
+          let windowCount = findCountForWindow(chunkCount - 2);
           fs.write(writeFD, windowCount + ' ' + chunkCount + ' \n', err => {
             if (err) throw err;
           });
@@ -104,15 +102,6 @@ function startProgram() {
     }
   }
 
-  function addValueToArray(value) {
-    if (valuesInWindow.length === windowSize) { //Shift Values
-      valuesInWindow.shift();
-      valuesInWindow.push(value);
-    } else { //Array not yet full
-      valuesInWindow.push(value);
-    }
-  }
-
   readStream.on('end', () => {
     if (chunkCount - 2 !== dataSize) {
       console.warn(`The give data size parameter ''${dataSize}'' did not match the
@@ -127,7 +116,7 @@ function startProgram() {
 
   /*
   CALCULATION ALGORITHMS START BELOW
-  Theoretically, the list of data points only needs to be scanned over one time.
+  The list of data points only needs to be scanned over one time.
   Everytime the window moves to the right, the point contributing subsets that
   the furthest left most value is a member of must be subtracted, and the entering
   value on the right needs to be added to any subsets that is will contribute to.
@@ -137,21 +126,21 @@ function startProgram() {
     runningCount: 0,
     currentRunType: 0, //1 for increase, -1 for decrease, 0 for same value
     consecutiveRunCount: null,
-    pointsContributedByEachValue: [], // With size K - windowsize
+    pointsContributedByEachValue: [],
   };
 
-  function findCountForWindow() {
+  function findCountForWindow(index) {
     if (countTracker.initialRun) {
       return calculateFirstSubsetCount();
     } else {
-      return calculateSubsequentSubsetCount();
+      return calculateSubsequentSubsetCount(index);
     }
   }
 
   function calculateFirstSubsetCount() {
     countTracker.initialRun = false;
-    for (let i = 0, length = valuesInWindow.length; i < length - 1; i++) {
-      let type = determineType(valuesInWindow[i + 1], valuesInWindow[i]);
+    for (let i = 0, length = dataPoints.length; i < length - 1; i++) {
+      let type = determineType(dataPoints[i + 1], dataPoints[i]);
       updateTracker(countTracker, type, i);
     }
     return countTracker.runningCount;
@@ -167,18 +156,19 @@ function startProgram() {
     }
   }
 
-  function calculateSubsequentSubsetCount() {
-    // Remove leftmost value
-    let valueToSubtract = countTracker.pointsContributedByEachValue.shift();
-    // Subtract leftmost contribution points from runningCount
+  function calculateSubsequentSubsetCount(index) {
+    // Find value contributed by node leaving the window
+    let valueToSubtract =
+        countTracker.pointsContributedByEachValue[index - windowSize];
+    // Subtract value from running count
     countTracker.runningCount -= valueToSubtract;
-    // Determine the type of new value in array
+    // Determine the type caused by addition of next data point
     let type = determineType(
-      valuesInWindow[windowSize - 1],
-      valuesInWindow[windowSize - 2]
+      dataPoints[index],
+      dataPoints[index - 1]
     );
     // Update tracker with new value
-    updateTracker(countTracker, type, windowSize - 2);
+    updateTracker(countTracker, type, index - 1);
     return countTracker.runningCount;
   }
 
